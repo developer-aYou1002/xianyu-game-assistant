@@ -6,9 +6,12 @@
 <label>本地服务访问密钥<input id="token" type="password" autocomplete="off"></label>
 <label><input id="enabled" type="checkbox">启用当前会话监听</label>
 <label><input id="autoSend" type="checkbox">自动发送（关闭时仅显示预览）</label>
-<label>固定话术规则（JSON，关键词采用整句精确匹配）<textarea id="rules" rows="8"></textarea></label>
+<h2>首次咨询引导</h2><pre id="welcome"></pre>
+<p>首次新买家消息触发一次。有效游戏查询优先；“怎么买”“怎么查”可再次获取引导。仅打开私聊窗口不触发。</p>
+<label>其他固定话术规则（JSON，整句精确匹配；默认空数组）<textarea id="rules" rows="8"></textarea></label>
 <label>页面适配（JSON，必须只选择买家消息）<textarea id="selectors" rows="12"></textarea></label>
-<p>conversation：当前会话元素选择器；conversationAttribute：会话 ID 属性名。incoming：买家消息选择器；text：消息内正文选择器；input：输入框；send：发送按钮；idAttribute：稳定消息 ID 属性名。</p>
+<p>conversation：当前会话元素选择器；conversationAttribute、sellerAttribute、buyerAttribute：该元素上的稳定会话、卖家、买家 ID 属性。incoming：买家消息；text：消息内正文；input：输入框；send：发送按钮；idAttribute：消息 ID；timeAttribute：消息绝对时间属性（10位秒、13位毫秒或带时区 ISO 时间）。不要填写昵称、“刚刚”等相对时间。</p>
 <button id="save">保存设置</button><output id="result"></output>
 <h2>本地查询测试</h2><input id="name" placeholder="输入游戏名称"><button id="test">测试查询</button><pre id="testResult"></pre>
+<h2>本地接待记录</h2><p>仅记录接待和发送尝试，不代表买家已经收到。刷新或重新加载插件会保留记录；卸载或清除存储会丢失。</p><button id="records">查看接待记录</button><pre id="recordResult"></pre>
 </main><script src="core.js"></script><script src="options.js"></script></html>

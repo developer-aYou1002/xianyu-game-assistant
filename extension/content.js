@@ -1,63 +1,131 @@
-let config = GameReply.defaults;
+let config = GameReply.normalize();
 let busy = false;
-let currentConversation = '';
+let revision = 0;
+let listeningSince = Date.now();
 const seen = new Set();
+const previewed = new Set();
 
 function report(text) {
   chrome.storage.local.set({status: {text, time: new Date().toLocaleString('zh-CN')}});
 }
 
-function conversationId() {
-  const element = document.querySelector(config.selectors.conversation);
-  return element?.getAttribute(config.selectors.conversationAttribute) || '';
+async function reception(identity, operation, details = {}) {
+  const result = await chrome.runtime.sendMessage({type: 'reception', identity, operation, ...details});
+  if (result.error) throw new Error(result.error);
+  return result;
 }
 
-function messages() {
-  return [...document.querySelectorAll(config.selectors.incoming)].map(element => ({
-    id: element.getAttribute(config.selectors.idAttribute),
-    text: (config.selectors.text ? element.querySelector(config.selectors.text) : element)?.textContent || ''
-  }));
+function identityKey(identity) {
+  return JSON.stringify([identity.seller, identity.buyer]);
 }
 
-function remember(id) {
-  seen.add(id);
+function stillCurrent(context) {
+  if (!config.enabled || context.revision !== revision) return false;
+  const now = ChatAdapter.identity(config.selectors);
+  return JSON.stringify(now) === JSON.stringify(context.identity);
+}
+
+async function actionFor(message, context) {
+  let first;
+  if (config.autoSend) {
+    const claim = await reception(context.identity, 'claim', {messageId: message.id});
+    if (claim.duplicate) return null;
+    context.claimed = true;
+    first = claim.first;
+  } else {
+    const {record} = await reception(context.identity, 'read');
+    first = !record.engaged && !previewed.has(identityKey(context.identity));
+  }
+  const action = GameReply.parse(message.text, config.rules);
+  return action || (first ? {reply: GameReply.welcomeMessage, guidance: true} : null);
+}
+
+async function getReply(action) {
+  if (!action.name) return action.reply;
+  const result = await chrome.runtime.sendMessage({type: 'lookup', name: action.name});
+  if (result.error) throw new Error('查询服务不可用，本条请人工处理：' + result.error);
+  return GameReply.format(result);
+}
+
+async function processMessage(message, context) {
+  const automatic = config.autoSend;
+  let delivery = 'not_sent';
+  try {
+    const action = await actionFor(message, context);
+    if (!action) return;
+    context.guidance = Boolean(action.guidance);
+    const reply = await getReply(action);
+    if (!stillCurrent(context)) return;
+    if (!automatic) {
+      previewed.add(identityKey(context.identity));
+      report('预览回复（未发送）：' + reply);
+      return;
+    }
+    delivery = await sendReply(reply, context);
+  } catch (error) {
+    report(error.message);
+  } finally {
+    // 无法确定送达时保留 attempted/pending，不以“成功”标记，也不自动重发。
+    if (automatic && context.claimed) await reception(context.identity, 'finish', {
+      messageId: message.id, delivery, guidance: context.guidance
+    });
+  }
+}
+
+async function sendReply(reply, context) {
+  if (!config.autoSend || !stillCurrent(context)) return 'not_sent';
+  const input = ChatAdapter.input(config.selectors);
+  ChatAdapter.fill(input, reply);
+  // 输入事件后等待页面更新按钮；再次核对会话和草稿，防止异步期间误发。
+  await new Promise(resolve => setTimeout(resolve, 100));
+  if (!config.autoSend || !stillCurrent(context) || input.value !== reply) return 'not_sent';
+  if (document.querySelector(config.selectors.input) !== input) return 'not_sent';
+  const button = document.querySelector(config.selectors.send);
+  if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') {
+    throw new Error('发送按钮不可用，回复留在输入框，请人工处理');
+  }
+  // 点击前先写入结果不明状态，页面退出或后台中断也不能导致自动重复欢迎。
+  await reception(context.identity, 'finish', {
+    messageId: context.messageId, delivery: 'attempted', guidance: context.guidance
+  });
+  if (!config.autoSend || !stillCurrent(context) || input.value !== reply) return 'not_sent';
+  if (document.querySelector(config.selectors.input) !== input) return 'not_sent';
+  if (document.querySelector(config.selectors.send) !== button || button.disabled || button.getAttribute('aria-disabled') === 'true') return 'not_sent';
+  try {
+    button.click();
+  } catch {
+    report('发送动作结果不明，请人工检查，未自动重试');
+    return 'attempted';
+  }
+  report('已尝试发送，送达状态待人工确认：' + reply);
+  return 'attempted';
+}
+
+function remember(key) {
+  seen.add(key);
   if (seen.size > 5000) seen.delete(seen.values().next().value);
 }
 
-async function processMessage(message, conversation) {
-  const action = GameReply.parse(message.text, config.rules);
-  if (!action) return;
-  let reply = action.reply;
-  if (action.name) {
-    const result = await chrome.runtime.sendMessage({type: 'lookup', name: action.name});
-    if (result.error) {
-      report(result.error + '；本条未发送，请人工处理');
-      return;
-    }
-    reply = GameReply.format(result);
+async function scanConversation() {
+  const identity = ChatAdapter.identity(config.selectors);
+  const context = {identity, revision};
+  const items = ChatAdapter.messages(config.selectors);
+  if (items.some(item => !item.id || !Number.isFinite(item.time))) {
+    throw new Error('消息缺少稳定 ID 或绝对时间，暂停处理，请检查适配');
   }
-  if (!config.autoSend) {
-    report('预览回复：' + reply);
-    return;
+  // 以本次启用时间为界，迟到渲染的旧记录也不当作新咨询。
+  if (items.some(item => item.time <= listeningSince) && !previewed.has(identityKey(identity))) {
+    await reception(identity, 'history');
   }
-  // 查询期间可能切换聊天或关闭开关，发送前必须重新核对会话和开关。
-  if (!config.enabled || !config.autoSend || conversationId() !== conversation) return;
-  sendReply(reply);
-}
-
-function sendReply(reply) {
-  const input = document.querySelector(config.selectors.input);
-  const button = document.querySelector(config.selectors.send);
-  if (!input || !button || button.disabled) throw new Error('未找到可用输入框或发送按钮');
-  if ((input.value || input.textContent || '').trim()) throw new Error('输入框有人工草稿，已跳过');
-  if (!(input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement)) {
-    throw new Error('当前仅适配 input/textarea，富文本输入框需要单独适配');
+  for (const item of items.sort((left, right) => left.time - right.time)) {
+    if (!stillCurrent(context)) return;
+    if (item.time <= listeningSince) continue;
+    if (item.time > Date.now()) throw new Error('消息时间晚于本机时间，请检查时间格式或系统时钟');
+    const key = JSON.stringify([identity.seller, identity.buyer, item.id]);
+    if (seen.has(key)) continue;
+    remember(key);
+    await processMessage(item, {...context, messageId: item.id});
   }
-  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, reply);
-  input.dispatchEvent(new Event('input', {bubbles: true}));
-  button.click();
-  report('已尝试发送，请在闲鱼确认送达：' + reply);
 }
 
 async function scan() {
@@ -72,29 +140,10 @@ async function scan() {
   }
 }
 
-async function scanConversation() {
-  const conversation = conversationId();
-  if (!conversation) throw new Error('未读取到当前会话的稳定 ID，请检查页面适配');
-  const items = messages();
-  if (items.some(item => !item.id)) throw new Error('买家消息缺少稳定 ID，已停止本轮处理');
-  // 首次进入或切换会话只建立基线，避免自动回复历史消息。
-  if (conversation !== currentConversation) {
-    currentConversation = conversation;
-    items.forEach(item => remember(conversation + ':' + item.id));
-    report('当前会话已建立基线，等待新消息');
-    return;
-  }
-  for (const item of items) {
-    const key = conversation + ':' + item.id;
-    if (seen.has(key)) continue;
-    remember(key);
-    await processMessage(item, conversation);
-  }
-}
-
 function updateConfig(value) {
-  config = {...GameReply.defaults, ...value};
-  currentConversation = '';
+  config = GameReply.normalize(value);
+  revision += 1;
+  listeningSince = Date.now();
 }
 
 chrome.storage.local.get('config').then(({config: value}) => updateConfig(value));

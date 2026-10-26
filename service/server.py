@@ -69,7 +69,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='闲鱼游戏查询本地服务')
-    parser.add_argument('--db', required=True, type=Path, help='现有 SQLite 文件路径')
+    default_db = Path(__file__).resolve().parents[2] / 'scrapers/xdgame/data/xdgame.db'
+    parser.add_argument('--db', default=default_db, type=Path, help='现有 SQLite 文件路径，默认使用相邻爬虫项目的正式库')
     parser.add_argument('--port', type=int, default=18765)
     args = parser.parse_args()
     if not args.db.is_file():
