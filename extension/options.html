@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>闲鱼游戏查询助手设置</title>
+<link rel="stylesheet" href="style.css">
+<main><h1>闲鱼游戏查询助手</h1>
+<p>先启动本地服务，再填写本次访问密钥。页面适配完成前请保持预览模式。</p>
+<label>本地服务访问密钥<input id="token" type="password" autocomplete="off"></label>
+<label><input id="enabled" type="checkbox">启用当前会话监听</label>
+<label><input id="autoSend" type="checkbox">自动发送（关闭时仅显示预览）</label>
+<label>固定话术规则（JSON，关键词采用整句精确匹配）<textarea id="rules" rows="8"></textarea></label>
+<label>页面适配（JSON，必须只选择买家消息）<textarea id="selectors" rows="12"></textarea></label>
+<p>conversation：当前会话元素选择器；conversationAttribute：会话 ID 属性名。incoming：买家消息选择器；text：消息内正文选择器；input：输入框；send：发送按钮；idAttribute：稳定消息 ID 属性名。</p>
+<button id="save">保存设置</button><output id="result"></output>
+<h2>本地查询测试</h2><input id="name" placeholder="输入游戏名称"><button id="test">测试查询</button><pre id="testResult"></pre>
+</main><script src="core.js"></script><script src="options.js"></script></html>

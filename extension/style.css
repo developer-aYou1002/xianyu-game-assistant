@@ -1,0 +1,7 @@
+body { font: 15px/1.6 system-ui, sans-serif; background: #f5f7fa; color: #172033; min-width: 340px; }
+main { max-width: 780px; margin: 24px auto; padding: 24px; background: white; border-radius: 12px; }
+label { display: block; margin: 18px 0; }
+input:not([type=checkbox]), textarea { display: block; box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #abb8c8; border-radius: 6px; }
+textarea { font-family: monospace; }
+button { background: #2455db; color: white; border: 0; border-radius: 6px; padding: 10px 18px; margin: 8px 8px 8px 0; cursor: pointer; }
+output, pre { white-space: pre-wrap; overflow-wrap: anywhere; }
